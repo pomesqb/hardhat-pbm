@@ -17,19 +17,32 @@ contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
         address logicContract;
     }
 
-    mapping(bytes32 => PBMRequestMeta) public pbmRequests;
+    struct Metadata {
+        string description;
+        uint256 settlementTimestamp;
+        uint256 originExchangeRate;
+    }
+
+    struct ComplexData {
+        uint256 id;
+        Metadata metadata;
+    }
 
     bytes32 public s_lastRequestId;
     bytes public s_lastResponse;
     bytes public s_lastError;
     string[] public s_stringArrResponse;
+
+    mapping(bytes32 => PBMRequestMeta) public pbmRequests;
     mapping(bytes32 => uint256) public settlementTimestamps;
+    mapping(bytes32 => uint256) public originExchangeRates;
 
     error UnexpectedRequestID(bytes32 requestId);
 
     event Response(
         bytes32 indexed requestId,
         uint256 settlementTimestamp,
+        uint256 originExchangeRate,
         bytes response,
         bytes err
     );
@@ -49,7 +62,17 @@ contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
         "throw Error('Request failed');"
         "}"
         "const { data } = apiResponse;"
-        "return Functions.encodeString(data.settlementTimestamp);";
+        "const complexData = {"
+        "id: 1,"
+        "metadata: {"
+        "description: 'memo',"
+        "settlementTimestamp: 123456789,"
+        "originExchangeRate: 31450000"
+        "}"
+        "};"
+        "const types = ['tuple(uint256 id, tuple(string description, uint256 settlementTimestamp, uint256 originExchangeRate) metadata)']"
+        "const encodedData = abiCoder.encode(types, [complexData])"
+        "return ethers.getBytes(encodedData);";
 
     //Callback gas limit
     uint32 gasLimit = 300000;
@@ -120,25 +143,19 @@ contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
 
         s_lastResponse = response;
         s_lastError = err;
-        s_stringArrResponse = abi.decode(response, (string[]));
 
-        settlementTimestamps[requestId] = stringToUint(s_stringArrResponse[0]);
+        if (response.length > 0) {
+            ComplexData memory data = abi.decode(response, (ComplexData));
+            settlementTimestamps[requestId] = data.metadata.settlementTimestamp;
+            originExchangeRates[requestId] = data.metadata.originExchangeRate;
+        }
 
         emit Response(
             requestId,
             settlementTimestamps[requestId],
+            originExchangeRates[requestId],
             s_lastResponse,
             s_lastError
         );
-    }
-
-    function stringToUint(string memory s) public pure returns (uint256) {
-        bytes memory b = bytes(s);
-        uint256 result = 0;
-        for (uint i = 0; i < b.length; i++) {
-            require(b[i] >= 0x30 && b[i] <= 0x39, "only numbers");
-            result = result * 10 + (uint8(b[i]) - 48);
-        }
-        return result;
     }
 }
