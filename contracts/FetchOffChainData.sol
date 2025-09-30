@@ -4,10 +4,12 @@ pragma solidity ^0.8.19;
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
 import {ConfirmedOwner} from "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
 import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
+import "./StockSettlementLogic.sol";
 
 contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
     using FunctionsRequest for FunctionsRequest.Request;
 
+    address public logicContract;
     uint64 public subscriptionId;
 
     struct PBMRequestMeta {
@@ -141,6 +143,8 @@ contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
             revert UnexpectedRequestID(requestId); // Check if request IDs match
         }
 
+        PBMRequestMeta memory reqMeta = pbmRequests[requestId];
+
         s_lastResponse = response;
         s_lastError = err;
 
@@ -149,6 +153,13 @@ contract FetchOffChainData is FunctionsClient, ConfirmedOwner {
             settlementTimestamps[requestId] = data.metadata.settlementTimestamp;
             originExchangeRates[requestId] = data.metadata.originExchangeRate;
         }
+
+        StockSettlementLogic(reqMeta.logicContract).handleFulfilledPBMRequest(
+            reqMeta.custodian,
+            reqMeta.amount,
+            settlementTimestamps[requestId],
+            originExchangeRates[requestId]
+        );
 
         emit Response(
             requestId,
